@@ -29,18 +29,15 @@ var MarketCodes = []string{
 
 // HPImage image details
 type HPImage struct {
+	URL     string `json:"url"`
+	URLBase string `json:"urlbase"`
+
 	Copyright string `json:"copyright"`
-	URL       string `json:"url"`
-	URLBase   string `json:"urlbase"`
+	Desc      string `json:"desc"`
 
 	FullStartDate string `json:"fullstartdate"`
 	StartDate     string `json:"startdate"`
 	EndDate       string `json:"enddate"`
-}
-
-// ToString HP Image info with date, copyright and name
-func (i *HPImage) ToString() string {
-	return fmt.Sprintf("Startdate: %s | Copyright: %s | Filename: %s\n", i.FullStartDate, i.Copyright, filepath.Base(i.URL))
 }
 
 // GetMarketHPImages get HP images from target host and market

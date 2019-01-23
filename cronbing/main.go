@@ -2,9 +2,12 @@ package main
 
 import (
 	"encoding/csv"
+	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"os/user"
 	"path"
 	"path/filepath"
 	"reflect"
@@ -14,17 +17,54 @@ import (
 	"github.com/yanceyou/bing"
 )
 
-const folder = "/mnt/f/images"
-const csvFilename = "bing.csv"
+const csvComma = ';'
+const csvFilename = "bing.dat"
 const logFilename = "bing.log"
 
-func init() {
-	logFilepath := filepath.Join(folder, logFilename)
+type config struct {
+	folder string
+	host   string
+	days   int
+	num    int
+}
+
+var conf config
+
+func initConfig() {
+	u, err := user.Current()
+	if err != nil {
+		panic(err)
+	}
+	folder := flag.String("folder", filepath.Join(u.HomeDir, "pictures"), "target folder")
+	days := flag.Int("days", 7, "days before today")
+	num := flag.Int("num", 7, "image numbers of days")
+
+	flag.Parse()
+
+	if err := os.MkdirAll(*folder, os.ModePerm); err != nil {
+		panic(err)
+	}
+
+	conf = config{
+		folder: *folder,
+		days:   *days,
+		num:    *num,
+		host:   bing.HostGlobal,
+	}
+}
+
+func initLogger() {
+	logFilepath := filepath.Join(conf.folder, logFilename)
 	f, err := os.OpenFile(logFilepath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
-		log.Fatalf("error opening file: %v", err)
+		panic(fmt.Sprintf("error opening file: %v", err))
 	}
-	log.SetOutput(f)
+	log.SetOutput(io.MultiWriter(os.Stdout, f))
+}
+
+func init() {
+	initConfig()
+	initLogger()
 }
 
 func toCSVMapper() map[string]int {
@@ -40,7 +80,7 @@ func readCSV(csvFile *os.File) ([]*bing.HPImage, error) {
 	imgs := make([]*bing.HPImage, 0)
 
 	reader := csv.NewReader(csvFile)
-	reader.Comma = ';'
+	reader.Comma = csvComma
 	reader.LazyQuotes = true
 	lines, err := reader.ReadAll()
 	if err != nil {
@@ -49,6 +89,9 @@ func readCSV(csvFile *os.File) ([]*bing.HPImage, error) {
 
 	csvMapper := toCSVMapper()
 	for _, line := range lines {
+		if len(line) < len(csvMapper) {
+			continue
+		}
 		img := &bing.HPImage{}
 		for k, v := range csvMapper {
 			reflect.ValueOf(img).Elem().FieldByName(k).SetString(line[v])
@@ -61,7 +104,7 @@ func readCSV(csvFile *os.File) ([]*bing.HPImage, error) {
 func getAllMarketHPImages() ([]*bing.HPImage, error) {
 	imgs := make([]*bing.HPImage, 0)
 	for _, mkt := range bing.MarketCodes {
-		mktImages, err := bing.GetMarketHPImages(bing.HostGlobal, mkt, 0, 1)
+		mktImages, err := bing.GetMarketHPImages(conf.host, mkt, conf.days, conf.num)
 		if err != nil {
 			return nil, err
 		}
@@ -116,52 +159,53 @@ func toCSVLine(image *bing.HPImage) []string {
 	return line
 }
 
-func main() {
-	log.Println("Start get today's backgrounds...")
-
-	csvFilepath := filepath.Join(folder, csvFilename)
+func start() error {
+	csvFilepath := filepath.Join(conf.folder, csvFilename)
 	csvFile, err := os.OpenFile(csvFilepath, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
 	if err != nil {
-		log.Printf("[ERROR] Open csv file err: %+v", err)
-		return
+		return fmt.Errorf("Open csv file err: %+v", err)
 	}
 	defer csvFile.Close()
 
 	oldImgs, err := readCSV(csvFile)
 	if err != nil {
-		log.Printf("[ERROR] Read csv file err: %+v", err)
-		return
+		return fmt.Errorf("Read csv file err: %+v", err)
 	}
 	if len(oldImgs) == 0 {
-		// Write UTF-8 BOM, 防止乱码
 		csvFile.WriteString("\xEF\xBB\xBF")
 	}
 
 	newImgs, err := getAllMarketHPImages()
 	if err != nil {
-		log.Printf("[ERROR] Get market HP images err: %+v", err)
-		return
+		return fmt.Errorf("Get market HP images err: %+v", err)
 	}
 
 	writer := csv.NewWriter(csvFile)
-	writer.Comma = ';'
+	writer.Comma = csvComma
 	dedupedImgs := deduplication(newImgs, oldImgs)
+	log.Printf("Get deduped market HP images num: %d", len(dedupedImgs))
 	for i, img := range dedupedImgs {
-		filename, err := bing.DownloadHPImage(bing.HostGlobal+img.URL, folder)
+		filename, err := bing.DownloadHPImage(conf.host+img.URL, conf.folder)
 		if err != nil {
 			log.Printf("[ERROR] Download [image-%d] err: %+v", i, err)
 			continue
 		}
 		log.Printf("Download [image-%d] into [%s]: %+v", i, filename, img)
-
 		if err := writer.Write(toCSVLine(img)); err != nil {
 			log.Printf("[ERROR] Writing img to csv err: %+v", err)
 		}
 	}
 	writer.Flush()
+	return writer.Error()
+}
 
-	if err := writer.Error(); err != nil {
-		log.Printf("[ERROR] Flush csv err: %+v", err)
+func main() {
+	log.Println("Start get today's backgrounds...")
+	log.Printf("Current config: %+v", conf)
+
+	if err := start(); err != nil {
+		log.Printf("[ERROR] %+v", err)
 	}
+
 	log.Println("End download today's backgrounds...")
 }
