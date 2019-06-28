@@ -1,25 +1,23 @@
 package main
 
 import (
-	"encoding/csv"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/user"
-	"path"
 	"path/filepath"
-	"reflect"
-	"strings"
 	"time"
 
 	"github.com/yanceyou/bing"
 )
 
-const csvComma = ';'
-const csvFilename = "bing.dat"
-const logFilename = "bing.log"
+var (
+	dataFile *os.File
+)
 
 type config struct {
 	folder string
@@ -36,7 +34,7 @@ func initConfig() {
 		panic(err)
 	}
 	folder := flag.String("folder", filepath.Join(u.HomeDir, "pictures"), "target folder")
-	days := flag.Int("days", 7, "days before today")
+	days := flag.Int("days", 0, "days before today")
 	num := flag.Int("num", 7, "image numbers of days")
 
 	flag.Parse()
@@ -54,12 +52,12 @@ func initConfig() {
 }
 
 func initLogger() {
-	logFilepath := filepath.Join(conf.folder, logFilename)
-	f, err := os.OpenFile(logFilepath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	logFilepath := filepath.Join(conf.folder, "bing.log")
+	logFile, err := os.OpenFile(logFilepath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
-		panic(fmt.Sprintf("error opening file: %v", err))
+		panic(fmt.Sprintf("Open log file err: %v", err))
 	}
-	log.SetOutput(io.MultiWriter(os.Stdout, f))
+	log.SetOutput(io.MultiWriter(os.Stdout, logFile))
 }
 
 func init() {
@@ -67,60 +65,17 @@ func init() {
 	initLogger()
 }
 
-func toCSVMapper() map[string]int {
-	csvMapper := make(map[string]int, 0)
-	types := reflect.TypeOf(bing.HPImage{})
-	for i := 0; i < types.NumField(); i++ {
-		csvMapper[types.Field(i).Name] = i
-	}
-	return csvMapper
-}
+func loadData() {
 
-func readCSV(csvFile *os.File) ([]*bing.HPImage, error) {
-	imgs := make([]*bing.HPImage, 0)
+	year := time.Now().Year()
+	flag := os.O_RDWR | os.O_CREATE | os.O_APPEND
 
-	reader := csv.NewReader(csvFile)
-	reader.Comma = csvComma
-	reader.LazyQuotes = true
-	lines, err := reader.ReadAll()
+	dataFilename := filepath.Join(conf.folder, fmt.Sprintf("bing.%d.json", year))
+	dataFile, err := os.OpenFile(dataFilename, flag, 0666)
 	if err != nil {
-		return imgs, err
+		panic(fmt.Sprintf("Open csv file err: %+v", err))
 	}
 
-	csvMapper := toCSVMapper()
-	for _, line := range lines {
-		if len(line) < len(csvMapper) {
-			continue
-		}
-		img := &bing.HPImage{}
-		for k, v := range csvMapper {
-			reflect.ValueOf(img).Elem().FieldByName(k).SetString(line[v])
-		}
-		imgs = append(imgs, img)
-	}
-	return imgs, nil
-}
-
-func getAllMarketHPImages() ([]*bing.HPImage, error) {
-	imgs := make([]*bing.HPImage, 0)
-	for _, mkt := range bing.MarketCodes {
-		mktImages, err := bing.GetMarketHPImages(conf.host, mkt, conf.days, conf.num)
-		if err != nil {
-			return nil, err
-		}
-		imgs = append(imgs, mktImages...)
-	}
-	return imgs, nil
-}
-
-func getHPImageName(URLBase string) string {
-	const HPImageNameSeparator = "_"
-	base := path.Base(URLBase)
-	names := strings.Split(base, HPImageNameSeparator)
-	if len(names) == 0 {
-		return fmt.Sprintf("unknown-%d", time.Now().UnixNano())
-	}
-	return names[0]
 }
 
 func deduplication(newImgs []*bing.HPImage, oldImgs []*bing.HPImage) []*bing.HPImage {
@@ -145,58 +100,35 @@ func deduplication(newImgs []*bing.HPImage, oldImgs []*bing.HPImage) []*bing.HPI
 	return dedupedImgs
 }
 
-func toCSVLine(image *bing.HPImage) []string {
-	values := reflect.ValueOf(image).Elem()
-	line := make([]string, values.NumField())
-	for k, v := range toCSVMapper() {
-		val, ok := values.FieldByName(k).Interface().(string)
-		if !ok {
-			line[v] = ""
-			continue
-		}
-		line[v] = val
-	}
-	return line
-}
-
 func start() error {
-	csvFilepath := filepath.Join(conf.folder, csvFilename)
-	csvFile, err := os.OpenFile(csvFilepath, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
+	dataBytes, err := ioutil.ReadAll(dataFile)
 	if err != nil {
-		return fmt.Errorf("Open csv file err: %+v", err)
+		return fmt.Errorf("Read data file err: %+v", err)
 	}
-	defer csvFile.Close()
-
-	oldImgs, err := readCSV(csvFile)
-	if err != nil {
-		return fmt.Errorf("Read csv file err: %+v", err)
-	}
-	if len(oldImgs) == 0 {
-		csvFile.WriteString("\xEF\xBB\xBF")
+	var oldImgs []*bing.HPImage
+	if err := json.Unmarshal(dataBytes, &oldImgs); err != nil {
+		return fmt.Errorf("Unmarshal data file err: %+v", err)
 	}
 
-	newImgs, err := getAllMarketHPImages()
+	newImgs, err := bing.GetAllMarketHPImages(conf.host, conf.days, conf.num)
 	if err != nil {
 		return fmt.Errorf("Get market HP images err: %+v", err)
 	}
 
-	writer := csv.NewWriter(csvFile)
-	writer.Comma = csvComma
-	dedupedImgs := deduplication(newImgs, oldImgs)
-	log.Printf("Get deduped market HP images num: %d", len(dedupedImgs))
-	for i, img := range dedupedImgs {
-		filename, err := bing.DownloadHPImage(conf.host+img.URL, conf.folder)
-		if err != nil {
+	dedupedNewImgs := deduplication(newImgs, oldImgs)
+	log.Printf("Get deduped market HP images num: %d", len(dedupedNewImgs))
+
+	for i, img := range dedupedNewImgs {
+		filename := filepath.Join(conf.folder, img.Name())
+		if err := bing.DownloadHPImage(conf.host+img.URL, filename); err != nil {
 			log.Printf("[ERROR] Download [image-%d] err: %+v", i, err)
 			continue
 		}
 		log.Printf("Download [image-%d] into [%s]: %+v", i, filename, img)
-		if err := writer.Write(toCSVLine(img)); err != nil {
-			log.Printf("[ERROR] Writing img to csv err: %+v", err)
-		}
 	}
-	writer.Flush()
-	return writer.Error()
+
+	oldImgs = append(oldImgs, dedupedNewImgs...)
+
 }
 
 func main() {
