@@ -1,6 +1,7 @@
 package obing
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -8,8 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 )
-
-const hpImageNameSeparator = "_"
 
 // HPImage image details
 type HPImage struct {
@@ -31,8 +30,14 @@ type HPImage struct {
 	EndDate       string `json:"enddate"`
 }
 
+const (
+	R1920x1080 = "1920x1080"
+	R360x480 = "360x480"
+)
+
 // Filename return the image filename extract from url.
 // url like: "/th?id=OHR.RootBridge_ZH-CN5173953292_1920x1080.jpg&rf=LaDigue_1920x1080.jpg&pid=hp"
+// filename: "OHR.RootBridge_ZH-CN5173953292_1920x1080.jpg"
 func (i *HPImage) Filename() string {
 	if len(i.URL) == 0 {
 		return ""
@@ -47,43 +52,25 @@ func (i *HPImage) Filename() string {
 	return values["/th?id"][0]
 }
 
-// MarketID return the market info (like ZH-CN5173953292) of the image filename.
-// filename like: OHR.RootBridge_ZH-CN5173953292_1920x1080.jpg
-func (i *HPImage) MarketID() string {
-	items := strings.Split(i.Filename(), hpImageNameSeparator)
-	if len(items) < 2 {
-		return ""
-	}
-	return items[1]
-}
-
 // Name return the name (like OHR.RootBridge) of image filename.
-// filename like: OHR.RootBridge_ZH-CN5173953292_1920x1080.jpg
+// filename: "OHR.RootBridge_ZH-CN5173953292_1920x1080.jpg"
+// name: "OHR.RootBridge"
 func (i *HPImage) Name() string {
-	items := strings.Split(i.Filename(), hpImageNameSeparator)
+	items := strings.Split(i.Filename(), "_")
 	if len(items) < 2 {
 		return ""
 	}
 	return items[0]
 }
 
-// Content return the copyright or the title of the image.
-func (i *HPImage) Content() string {
-	if len(i.Title) == 0 {
-		return i.Copyright
-	}
-	return i.Title
-}
-
-// Download HP image to destination folder.
-func (i *HPImage) Download(folder string) error {
-	resp, err := http.Get(i.Host + i.URL)
+func (i *HPImage) download(url, target string) error {
+	resp, err := http.Get(url)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	file, err := os.Create(filepath.Join(folder, i.Filename()))
+	file, err := os.Create(target)
 	if err != nil {
 		return err
 	}
@@ -91,4 +78,17 @@ func (i *HPImage) Download(folder string) error {
 
 	_, err = io.Copy(file, resp.Body)
 	return err
+}
+
+// Download HP image to destination folder.
+func (i *HPImage) Download(folder string) error {
+	return i.download(i.Host+i.URL, filepath.Join(folder, i.Filename()))
+}
+
+// DownloadResolution HP image with resolution to destination folder.
+func (i *HPImage) DownloadResolution(folder string, w, h int) error {
+	resolution := fmt.Sprintf("%dx%d", w, h)
+	url := strings.Replace(i.Host+i.URL, "1920x1080", resolution, 1)
+	filename := strings.Replace(i.Filename(), "1920x1080", resolution, 1)
+	return i.download(url, filepath.Join(folder, filename))
 }
