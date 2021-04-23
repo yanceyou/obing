@@ -1,7 +1,11 @@
-package bing
+package obing
 
 import (
+	"io"
+	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -9,12 +13,18 @@ const hpImageNameSeparator = "_"
 
 // HPImage image details
 type HPImage struct {
+	Market string
+	Host   string
+
 	URL     string `json:"url"`
 	URLBase string `json:"urlbase"`
+	Hash    string `json:"hsh"`
 
-	Market    string
-	Title     string `json:"title"`
-	Copyright string `json:"copyright"`
+	Title string `json:"title"`
+	Quiz  string `json:"quiz"`
+
+	Copyright     string `json:"copyright"`
+	CopyrightLink string `json:"copyrightlink"`
 
 	FullStartDate string `json:"fullstartdate"`
 	StartDate     string `json:"startdate"`
@@ -63,4 +73,22 @@ func (i *HPImage) Content() string {
 		return i.Copyright
 	}
 	return i.Title
+}
+
+// Download HP image to destination folder.
+func (i *HPImage) Download(folder string) error {
+	resp, err := http.Get(i.Host + i.URL)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	file, err := os.Create(filepath.Join(folder, i.Filename()))
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	_, err = io.Copy(file, resp.Body)
+	return err
 }

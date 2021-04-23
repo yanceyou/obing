@@ -1,2 +1,4 @@
 debug*
-test/*
+
+bin/*.jpg
+bin/bin

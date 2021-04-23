@@ -1,10 +1,6 @@
-# bing
+# obing
 
 Download HP images from https://www.bing.com
-
-## cronbing(TODO)
-
-
 
 ## Example
 
