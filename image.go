@@ -1,7 +1,6 @@
 package obing
 
 import (
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -30,9 +29,15 @@ type HPImage struct {
 	EndDate       string `json:"enddate"`
 }
 
+type resolution string
+
 const (
-	R1920x1080 = "1920x1080"
-	R360x480 = "360x480"
+	R1920x1080 resolution = "1920x1080"
+	R768x1366  resolution = "768x1366"
+	R540x900   resolution = "540x900" // ratio 3:5
+	R480x800   resolution = "480x800" // ratio 3:5
+	R480x640   resolution = "480x640" // ratio 3:4
+	R360x480   resolution = "360x480" // ratio 3:4
 )
 
 // Filename return the image filename extract from url.
@@ -42,14 +47,11 @@ func (i *HPImage) Filename() string {
 	if len(i.URL) == 0 {
 		return ""
 	}
-	values, err := url.ParseQuery(i.URL)
+	values, err := url.ParseRequestURI(i.URL)
 	if err != nil {
 		return ""
 	}
-	if len(values["/th?id"]) == 0 {
-		return ""
-	}
-	return values["/th?id"][0]
+	return values.Query().Get("id")
 }
 
 // Name return the name (like OHR.RootBridge) of image filename.
@@ -86,9 +88,8 @@ func (i *HPImage) Download(folder string) error {
 }
 
 // DownloadResolution HP image with resolution to destination folder.
-func (i *HPImage) DownloadResolution(folder string, w, h int) error {
-	resolution := fmt.Sprintf("%dx%d", w, h)
-	url := strings.Replace(i.Host+i.URL, "1920x1080", resolution, 1)
-	filename := strings.Replace(i.Filename(), "1920x1080", resolution, 1)
+func (i *HPImage) DownloadResolution(folder string, r resolution) error {
+	url := strings.Replace(i.Host+i.URL, "1920x1080", string(r), 1)
+	filename := strings.Replace(i.Filename(), "1920x1080", string(r), 1)
 	return i.download(url, filepath.Join(folder, filename))
 }

@@ -8,23 +8,23 @@ Download HP images from https://www.bing.com
 package main
 
 import (
-	"log"
+	"fmt"
 
-	"github.com/yanceyou/bing"
+	"github.com/yanceyou/obing"
 )
 
 func main() {
-	images, err := bing.GetMarketHPImages(bing.HostGlobal, "zh-CN", 0, 7)
+	images, err := obing.GetHPImages(1, 7)
 	if err != nil {
-		log.Println(err)
+		fmt.Println(err)
+		return
 	}
 	for i, image := range images {
-		log.Printf("image-[%d]: %+v", i, image)
-		filename, err := bing.DownloadHPImage(bing.HostGlobal+image.URL, ".")
+		err := image.Download(".")
 		if err != nil {
-			log.Printf("download image-[%d] err: %+v", i, err)
+			fmt.Printf("download image-[%d] err: %+v\n", i, err)
 		}
-		log.Printf("download image-[%d] into %s", i, filename)
+		fmt.Printf("download image-[%d] image success: %+v\n", i, image)
 	}
 }
 ```
