@@ -55,7 +55,7 @@ func getHPImages(host, market string, index, num int) (images []*HPImage, err er
 	err = json.Unmarshal(body, &res)
 	for _, img := range res.Images {
 		img.Market = market
-		img.Host = HostGlobal
+		img.Host = host
 	}
 	return res.Images, err
 }
@@ -83,5 +83,5 @@ func GetAllMarketHPImages(index, num int) (images []*HPImage, err error) {
 
 // GetHPImages get HP images with index and num
 func GetHPImages(index, num int) (images []*HPImage, err error) {
-	return getHPImages(HostDefault, "", index, num)
+	return getHPImages(HostCN, "", index, num)
 }
