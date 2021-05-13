@@ -83,5 +83,5 @@ func GetAllMarketHPImages(index, num int) (images []*HPImage, err error) {
 
 // GetHPImages get HP images with index and num
 func GetHPImages(index, num int) (images []*HPImage, err error) {
-	return getHPImages(HostCN, "", index, num)
+	return getHPImages(HostCN, "zh-CN", index, num)
 }
